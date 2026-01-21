@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>P2P Lobby Test</title>
+<style>
+:root {
+  --bg: #0b0b0b;
+  --panel: #1a1a1a;
+  --panel2: #242424;
+  --text: #e0e0e0;
+  --muted: #9a9a9a;
+  --accent: #555;
+}
+* { box-sizing: border-box; font-family: system-ui, monospace; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+}
+button, input {
+  background: var(--panel2);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  padding: 8px;
+}
+button:hover { background: #2e2e2e; }
+.hidden { display: none; }
+
+/* Layout */
+#settingsBtn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+#topLeftBtn {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+}
+#center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+}
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  padding: 16px;
+  min-width: 300px;
+}
+.panel h3 { margin-top: 0; }
+
+#devPanel {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  background: #000;
+  border-top: 1px solid var(--accent);
+  padding: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+</style>
+</head>
+<body>
+
+<button id="settingsBtn">Settings</button>
+<button id="topLeftBtn" class="hidden"></button>
+
+<div id="center">
+  <div id="lobbyActions" class="panel">
+    <h3>Lobby</h3>
+    <button onclick="openCreate()">Create Lobby</button>
+    <button onclick="openJoin()">Join Lobby</button>
+  </div>
+
+  <div id="createPanel" class="panel hidden">
+    <h3>Create Lobby</h3>
+    <input id="createName" placeholder="Lobby name"><br><br>
+    <input id="createPass" placeholder="Password (optional)"><br><br>
+    <button onclick="createLobby()">Create</button>
+  </div>
+
+  <div id="joinPanel" class="panel hidden">
+    <h3>Join Lobby</h3>
+    <div id="lobbyList"></div>
+    <hr>
+    <input id="joinName" placeholder="Lobby name"><br><br>
+    <input id="joinPass" placeholder="Password"><br><br>
+    <button onclick="joinLobby()">Join</button>
+  </div>
+
+  <div id="settingsPanel" class="panel hidden">
+    <h3>Settings</h3>
+    <input id="usernameInput" placeholder="Username"><br><br>
+    <label>
+      <input type="checkbox" id="devToggle"> Dev Mode
+    </label>
+  </div>
+
+  <div id="lobbyView" class="panel hidden">
+    <h3 id="lobbyTitle"></h3>
+    <div id="memberList"></div>
+  </div>
+</div>
+
+<div id="devPanel" class="hidden"></div>
+
+<script>
+/* -------- STATE -------- */
+const state = {
+  username: "User",
+  dev: false,
+  lobby: null,
+  isHost: false,
+  lobbies: {} // mock registry
+};
+
+/* -------- UI HELPERS -------- */
+function show(id) { document.getElementById(id).classList.remove("hidden"); }
+function hide(id) { document.getElementById(id).classList.add("hidden"); }
+function logDev(msg) {
+  if (!state.dev) return;
+  const p = document.getElementById("devPanel");
+  p.textContent += msg + "\n";
+}
+
+/* -------- SETTINGS -------- */
+document.getElementById("settingsBtn").onclick = () => {
+  togglePanel("settingsPanel");
+};
+
+document.getElementById("devToggle").onchange = e => {
+  state.dev = e.target.checked;
+  document.getElementById("devPanel").classList.toggle("hidden", !state.dev);
+  logDev("Dev mode enabled");
+};
+
+document.getElementById("usernameInput").oninput = e => {
+  state.username = e.target.value || "User";
+};
+
+/* -------- PANELS -------- */
+function togglePanel(id) {
+  ["createPanel","joinPanel","settingsPanel"].forEach(hide);
+  show(id);
+}
+
+/* -------- LOBBY FLOW -------- */
+function openCreate() { togglePanel("createPanel"); }
+function openJoin() {
+  refreshLobbyList();
+  togglePanel("joinPanel");
+}
+
+function createLobby() {
+  const name = createName.value.trim();
+  const pass = createPass.value;
+  if (!name) return;
+
+  state.lobbies[name] = { pass, members: [state.username] };
+  state.lobby = name;
+  state.isHost = true;
+  enterLobby();
+  logDev("Lobby created: " + name);
+}
+
+function joinLobby() {
+  const name = joinName.value.trim();
+  const pass = joinPass.value;
+  const lobby = state.lobbies[name];
+  if (!lobby) return;
+  if (lobby.pass && lobby.pass !== pass) return;
+
+  lobby.members.push(state.username);
+  state.lobby = name;
+  state.isHost = false;
+  enterLobby();
+  logDev("Joined lobby: " + name);
+}
+
+function refreshLobbyList() {
+  const list = document.getElementById("lobbyList");
+  list.innerHTML = "";
+  Object.keys(state.lobbies).forEach(name => {
+    const btn = document.createElement("button");
+    btn.textContent = name;
+    btn.onclick = () => joinName.value = name;
+    list.appendChild(btn);
+    list.appendChild(document.createElement("br"));
+  });
+}
+
+function enterLobby() {
+  hide("lobbyActions");
+  hide("createPanel");
+  hide("joinPanel");
+  hide("settingsPanel");
+  show("lobbyView");
+
+  document.getElementById("lobbyTitle").textContent = state.lobby;
+  updateMembers();
+
+  const topBtn = document.getElementById("topLeftBtn");
+  topBtn.textContent = state.isHost ? "Dispose Lobby" : "Leave Lobby";
+  topBtn.onclick = exitLobby;
+  topBtn.classList.remove("hidden");
+}
+
+function updateMembers() {
+  const list = document.getElementById("memberList");
+  list.innerHTML = "";
+  state.lobbies[state.lobby].members.forEach((m,i) => {
+    const d = document.createElement("div");
+    d.textContent = (i === 0 ? "HOST: " : "") + m;
+    list.appendChild(d);
+  });
+}
+
+function exitLobby() {
+  const lobby = state.lobbies[state.lobby];
+  if (state.isHost) {
+    delete state.lobbies[state.lobby];
+    logDev("Lobby disposed");
+  } else {
+    lobby.members = lobby.members.filter(m => m !== state.username);
+    logDev("Left lobby");
+  }
+  state.lobby = null;
+  state.isHost = false;
+
+  hide("lobbyView");
+  show("lobbyActions");
+  document.getElementById("topLeftBtn").classList.add("hidden");
+}
+
+/* -------- MOCK P2P NOTES --------
+Replace state.lobbies with:
+- WebRTC DataChannel signaling
+- Peer discovery via free relay or DHT
+- Host as offerer, joiners as answerers
+- Dev panel mirrors ICE state, peer count, channel state
+-------------------------------- */
+</script>
+</body>
+</html>
