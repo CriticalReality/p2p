@@ -2,53 +2,68 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>P2P Lobby Test (WebRTC)</title>
-
-<script src="https://cdn.jsdelivr.net/npm/simple-peer@9/simplepeer.min.js"></script>
-
+<title>P2P Lobby Test</title>
 <style>
+:root {
+  --bg: #0b0b0b;
+  --panel: #1a1a1a;
+  --panel2: #242424;
+  --text: #e0e0e0;
+  --muted: #9a9a9a;
+  --accent: #555;
+}
+* { box-sizing: border-box; font-family: system-ui, monospace; }
 body {
   margin: 0;
-  background: #0b0b0b;
-  color: #e0e0e0;
-  font-family: system-ui, monospace;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
 }
 button, input {
-  background: #222;
-  color: #e0e0e0;
-  border: 1px solid #444;
+  background: var(--panel2);
+  color: var(--text);
+  border: 1px solid var(--accent);
   padding: 8px;
 }
+button:hover { background: #2e2e2e; }
 .hidden { display: none; }
 
-#settingsBtn { position: absolute; top: 10px; right: 10px; }
-#topLeftBtn { position: absolute; top: 10px; left: 10px; }
-
+/* Layout */
+#settingsBtn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+#topLeftBtn {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+}
 #center {
-  height: 100vh;
   display: flex;
   flex-direction: column;
-  justify-content: center;
   align-items: center;
+  justify-content: center;
+  height: 100%;
   gap: 12px;
 }
-
 .panel {
-  background: #161616;
+  background: var(--panel);
+  border: 1px solid var(--accent);
   padding: 16px;
-  border: 1px solid #333;
-  min-width: 320px;
+  min-width: 300px;
 }
+.panel h3 { margin-top: 0; }
 
 #devPanel {
-  position: fixed;
+  position: absolute;
   bottom: 0;
   width: 100%;
   background: #000;
+  border-top: 1px solid var(--accent);
+  padding: 8px;
   font-size: 12px;
-  padding: 6px;
-  border-top: 1px solid #333;
-  white-space: pre-wrap;
+  color: var(--muted);
 }
 </style>
 </head>
@@ -59,25 +74,33 @@ button, input {
 
 <div id="center">
   <div id="lobbyActions" class="panel">
+    <h3>Lobby</h3>
     <button onclick="openCreate()">Create Lobby</button>
     <button onclick="openJoin()">Join Lobby</button>
   </div>
 
   <div id="createPanel" class="panel hidden">
+    <h3>Create Lobby</h3>
     <input id="createName" placeholder="Lobby name"><br><br>
     <input id="createPass" placeholder="Password (optional)"><br><br>
     <button onclick="createLobby()">Create</button>
   </div>
 
   <div id="joinPanel" class="panel hidden">
+    <h3>Join Lobby</h3>
+    <div id="lobbyList"></div>
+    <hr>
     <input id="joinName" placeholder="Lobby name"><br><br>
     <input id="joinPass" placeholder="Password"><br><br>
     <button onclick="joinLobby()">Join</button>
   </div>
 
   <div id="settingsPanel" class="panel hidden">
+    <h3>Settings</h3>
     <input id="usernameInput" placeholder="Username"><br><br>
-    <label><input type="checkbox" id="devToggle"> Dev Mode</label>
+    <label>
+      <input type="checkbox" id="devToggle"> Dev Mode
+    </label>
   </div>
 
   <div id="lobbyView" class="panel hidden">
@@ -89,144 +112,145 @@ button, input {
 <div id="devPanel" class="hidden"></div>
 
 <script>
-/* ---------- STATE ---------- */
+/* -------- STATE -------- */
 const state = {
   username: "User",
   dev: false,
-  isHost: false,
   lobby: null,
-  password: null,
-  peers: [],
+  isHost: false,
+  ws: null,
+  connected: false,
   members: []
 };
 
-const TRACKERS = [
-  "wss://tracker.openwebtorrent.com",
-  "wss://tracker.btorrent.xyz",
-  "wss://tracker.fastcast.nz"
-];
+// CHANGE THIS TO YOUR REPLIT WEBSOCKET URL
+const WS_URL = "wss://replit.com/@CriticalRealit1/WebSocketCR1"; //hope and pray
 
-/* ---------- UTILS ---------- */
-function hash(str) {
-  return btoa(str).slice(0, 20);
-}
+/* -------- UI HELPERS -------- */
+function show(id) { document.getElementById(id).classList.remove("hidden"); }
+function hide(id) { document.getElementById(id).classList.add("hidden"); }
 function logDev(msg) {
   if (!state.dev) return;
-  devPanel.textContent += msg + "\n";
+  const p = document.getElementById("devPanel");
+  p.textContent += msg + "\n";
 }
-function show(id){ document.getElementById(id).classList.remove("hidden"); }
-function hide(id){ document.getElementById(id).classList.add("hidden"); }
 
-/* ---------- SETTINGS ---------- */
-settingsBtn.onclick = () => toggle("settingsPanel");
-devToggle.onchange = e => {
-  state.dev = e.target.checked;
-  devPanel.classList.toggle("hidden", !state.dev);
+/* -------- SETTINGS -------- */
+document.getElementById("settingsBtn").onclick = () => {
+  togglePanel("settingsPanel");
 };
-usernameInput.oninput = e => state.username = e.target.value || "User";
 
-/* ---------- PANELS ---------- */
-function toggle(id){
+document.getElementById("devToggle").onchange = e => {
+  state.dev = e.target.checked;
+  document.getElementById("devPanel").classList.toggle("hidden", !state.dev);
+  logDev("Dev mode enabled");
+};
+
+document.getElementById("usernameInput").oninput = e => {
+  state.username = e.target.value || "User";
+};
+
+/* -------- PANELS -------- */
+function togglePanel(id) {
   ["createPanel","joinPanel","settingsPanel"].forEach(hide);
   show(id);
 }
-function openCreate(){ toggle("createPanel"); }
-function openJoin(){ toggle("joinPanel"); }
 
-/* ---------- WEBRTC CORE ---------- */
-function createPeer(initiator, topic) {
-  const peer = new SimplePeer({
-    initiator,
-    trickle: true,
-    config: { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] }
-  });
-
-  peer.on("signal", data => {
-    localStorage.setItem(topic + "_signal", JSON.stringify(data));
-  });
-
-  peer.on("connect", () => {
-    logDev("DataChannel connected");
-    peer.send(JSON.stringify({ type:"join", name: state.username }));
-  });
-
-  peer.on("data", data => handleMessage(peer, data));
-  peer.on("iceStateChange", s => logDev("ICE: " + s));
-
-  state.peers.push(peer);
-  return peer;
-}
-
-/* ---------- MESSAGE HANDLING ---------- */
-function handleMessage(peer, raw) {
-  const msg = JSON.parse(raw);
-  if (msg.type === "join" && state.isHost) {
-    if (state.password && msg.pass !== state.password) return;
-    state.members.push(msg.name);
-    broadcast();
-  }
-  if (msg.type === "sync") {
-    state.members = msg.members;
-    renderMembers();
-  }
-}
-
-/* ---------- LOBBY FLOW ---------- */
-function createLobby() {
-  state.lobby = createName.value.trim();
-  state.password = createPass.value;
-  state.isHost = true;
-  state.members = [state.username];
-
-  enterLobby();
-
-  const topic = hash(state.lobby);
-  const peer = createPeer(true, topic);
-
-  window.addEventListener("storage", e => {
-    if (e.key === topic + "_signal") {
-      peer.signal(JSON.parse(e.newValue));
+/* -------- WEBSOCKET -------- */
+function connectWS() {
+  if (state.ws) return;
+  
+  state.ws = new WebSocket(WS_URL);
+  
+  state.ws.onopen = () => {
+    state.connected = true;
+    logDev("Connected to server");
+  };
+  
+  state.ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    logDev("Received: " + msg.type);
+    
+    if (msg.type === "members") {
+      state.members = msg.members;
+      updateMembers();
+    } else if (msg.type === "lobbies") {
+      updateLobbyList(msg.lobbies);
     }
-  });
+  };
+  
+  state.ws.onclose = () => {
+    state.connected = false;
+    state.ws = null;
+    logDev("Disconnected from server");
+  };
+  
+  state.ws.onerror = (err) => {
+    logDev("WebSocket error: " + err);
+  };
+}
 
-  logDev("Host advertising lobby");
+function send(type, data = {}) {
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    logDev("Not connected to server");
+    return;
+  }
+  state.ws.send(JSON.stringify({ type, ...data }));
+  logDev("Sent: " + type);
+}
+
+/* -------- LOBBY FLOW -------- */
+function openCreate() { 
+  connectWS();
+  togglePanel("createPanel"); 
+}
+
+function openJoin() {
+  connectWS();
+  send("list_lobbies");
+  togglePanel("joinPanel");
+}
+
+function createLobby() {
+  const name = createName.value.trim();
+  const pass = createPass.value;
+  if (!name) return;
+  
+  state.lobby = name;
+  state.isHost = true;
+  send("create", { lobby: name, password: pass, username: state.username });
+  enterLobby();
+  logDev("Creating lobby: " + name);
 }
 
 function joinLobby() {
-  state.lobby = joinName.value.trim();
-  state.password = joinPass.value;
+  const name = joinName.value.trim();
+  const pass = joinPass.value;
+  if (!name) return;
+  
+  state.lobby = name;
   state.isHost = false;
-
+  send("join", { lobby: name, password: pass, username: state.username });
   enterLobby();
-
-  const topic = hash(state.lobby);
-  const peer = createPeer(false, topic);
-
-  window.addEventListener("storage", e => {
-    if (e.key === topic + "_signal") {
-      peer.signal(JSON.parse(e.newValue));
-    }
-  });
-
-  peer.on("connect", () => {
-    peer.send(JSON.stringify({
-      type:"join",
-      name: state.username,
-      pass: state.password
-    }));
-  });
-
-  logDev("Attempting peer discovery");
+  logDev("Joining lobby: " + name);
 }
 
-function broadcast() {
-  state.peers.forEach(p => {
-    p.send(JSON.stringify({ type:"sync", members: state.members }));
+function updateLobbyList(lobbies) {
+  const list = document.getElementById("lobbyList");
+  list.innerHTML = "";
+  if (lobbies.length === 0) {
+    list.innerHTML = "<div style='color:var(--muted)'>No lobbies available</div>";
+    return;
+  }
+  lobbies.forEach(name => {
+    const btn = document.createElement("button");
+    btn.textContent = name;
+    btn.onclick = () => joinName.value = name;
+    list.appendChild(btn);
+    list.appendChild(document.createElement("br"));
   });
-  renderMembers();
 }
 
-/* ---------- UI ---------- */
 function enterLobby() {
   hide("lobbyActions");
   hide("createPanel");
@@ -234,32 +258,47 @@ function enterLobby() {
   hide("settingsPanel");
   show("lobbyView");
 
-  lobbyTitle.textContent = state.lobby;
-  renderMembers();
+  document.getElementById("lobbyTitle").textContent = state.lobby;
+  updateMembers();
 
-  topLeftBtn.textContent = state.isHost ? "Dispose Lobby" : "Leave Lobby";
-  topLeftBtn.onclick = exitLobby;
-  show("topLeftBtn");
+  const topBtn = document.getElementById("topLeftBtn");
+  topBtn.textContent = state.isHost ? "Dispose Lobby" : "Leave Lobby";
+  topBtn.onclick = exitLobby;
+  topBtn.classList.remove("hidden");
 }
 
-function renderMembers() {
-  memberList.innerHTML = "";
-  state.members.forEach((m,i)=>{
-    const d=document.createElement("div");
-    d.textContent=(i===0?"HOST: ":"")+m;
-    memberList.appendChild(d);
+function updateMembers() {
+  const list = document.getElementById("memberList");
+  list.innerHTML = "";
+  if (state.members.length === 0) {
+    list.innerHTML = "<div style='color:var(--muted)'>No members yet</div>";
+    return;
+  }
+  state.members.forEach((m, i) => {
+    const d = document.createElement("div");
+    d.textContent = (i === 0 ? "HOST: " : "") + m;
+    list.appendChild(d);
   });
 }
 
 function exitLobby() {
-  state.peers.forEach(p=>p.destroy());
-  state.peers=[];
-  state.members=[];
+  if (state.isHost) {
+    send("close", { lobby: state.lobby });
+    logDev("Closing lobby");
+  } else {
+    send("leave", { lobby: state.lobby });
+    logDev("Leaving lobby");
+  }
+  
+  state.lobby = null;
+  state.isHost = false;
+  state.members = [];
+
   hide("lobbyView");
   show("lobbyActions");
-  hide("topLeftBtn");
-  logDev("Lobby closed");
+  document.getElementById("topLeftBtn").classList.add("hidden");
 }
+
 </script>
 </body>
 </html>
